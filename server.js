@@ -22,14 +22,17 @@ const patientBookingRoutes = require("./routes/patientBookingRoutes");
 const patientDoctorsRoutes = require("./routes/patientDoctorsRoutes");
 const clinicRoutes = require("./routes/clinicRoutes");
 
+/* 🔥 AI ROUTE (NEW – SAFE ADDITION) */
+const aiRoutes = require("./routes/aiRoutes");
+
 const app = express();
 
 /* =======================
-   ✅ MIDDLEWARES (FIXED FOR HOSTING)
+   ✅ MIDDLEWARES (UNCHANGED)
 ======================= */
 app.use(
   cors({
-    origin: "*",          // ✅ mobile + production safe
+    origin: "*", // ✅ mobile + production safe
   })
 );
 
@@ -58,14 +61,17 @@ app.use("/api/patient", patientBookingRoutes);
 app.use("/api/patient", patientDoctorsRoutes);
 app.use("/api/clinic", clinicRoutes);
 
+/* 🔥 AI ROUTE MOUNT (NEW – SAFE ADDITION) */
+app.use("/api/ai", aiRoutes);
+
 /* =======================
-   🔥 SOCKET.IO (UNCHANGED LOGIC)
+   🔥 SOCKET.IO (UNCHANGED)
 ======================= */
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*",          // ✅ required for hosted mobile apps
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
@@ -87,7 +93,7 @@ io.on("connection", (socket) => {
 global.io = io;
 
 /* =======================
-   ✅ SERVER START (HOSTING SAFE)
+   ✅ SERVER START (UNCHANGED)
 ======================= */
 const PORT = process.env.PORT || 5000;
 

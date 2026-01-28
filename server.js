@@ -22,7 +22,7 @@ const patientBookingRoutes = require("./routes/patientBookingRoutes");
 const patientDoctorsRoutes = require("./routes/patientDoctorsRoutes");
 const clinicRoutes = require("./routes/clinicRoutes");
 
-const aiRoutes = require("./routes/ai.routes");
+
 /* 🔥 AI ROUTE (NEW – SAFE ADDITION) */
 const aiRoutes = require("./routes/aiRoutes");
 
@@ -65,8 +65,7 @@ app.use("/api/clinic", clinicRoutes);
 /* 🔥 AI ROUTE MOUNT (NEW – SAFE ADDITION) */
 app.use("/api/ai", aiRoutes);
 
-   🔥 SOCKET.IO (UNCHANGED)
-======================= */
+
 const server = http.createServer(app);
 
 const io = new Server(server, {

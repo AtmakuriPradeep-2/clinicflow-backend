@@ -24,7 +24,7 @@ const clinicRoutes = require("./routes/clinicRoutes");
 
 
 /* 🔥 AI ROUTE (NEW – SAFE ADDITION) */
-const aiRoutes = require("./routes/aiRoutes");
+const aiRoutes = require("./routes/ai.routes");
 
 const app = express();
 

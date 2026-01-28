@@ -4,4 +4,4 @@ const { aiReceptionist } = require("../controllers/ai.controller");
 
 router.post("/receptionist", aiReceptionist);
 
-module.exports = router;
+module.exports = router;    

@@ -1,6 +1,7 @@
 const Appointment = require("../models/Appointment");
 const Doctor = require("../models/Doctor");
 const Clinic = require("../models/Clinic");
+const Patient = require("../models/Patient");
 
 const sessions = {};
 
@@ -20,16 +21,14 @@ exports.aiReceptionist = async (req, res) => {
 
     const session = sessions[userId];
 
-    // If already in flow
     if (session.step) {
       return await handleSteps(session, text, userId, res);
     }
 
-    // Start booking
     if (text.toLowerCase().includes("book")) {
       session.step = "ASK_PHONE";
       return res.json({
-        reply: "📞 Please provide your phone number.",
+        reply: "📞 Please provide your registered phone number.",
       });
     }
 
@@ -52,9 +51,23 @@ async function handleSteps(session, text, userId, res) {
     switch (session.step) {
 
       /* ================= PHONE ================= */
-      case "ASK_PHONE":
-        session.data.patientPhone = text;
-        session.step = "SELECT_CLINIC";
+      case "ASK_PHONE": {
+
+        session.data.patientPhone = text.trim();
+
+        const patient = await Patient.findOne({
+          phone: session.data.patientPhone,
+        });
+
+        if (!patient) {
+          reset(userId);
+          return res.json({
+            reply: "❌ No registered patient found with this phone number.",
+          });
+        }
+
+        session.data.patientId = patient._id;
+        session.data.patientName = patient.name;
 
         const clinics = await Clinic.find();
 
@@ -66,6 +79,7 @@ async function handleSteps(session, text, userId, res) {
         }
 
         session.data.clinics = clinics;
+        session.step = "SELECT_CLINIC";
 
         const clinicList = clinics
           .map((c, i) => `${i + 1}. ${c.name}`)
@@ -74,10 +88,10 @@ async function handleSteps(session, text, userId, res) {
         return res.json({
           reply: `Please choose a clinic:\n${clinicList}`,
         });
-
+      }
 
       /* ================= CLINIC ================= */
-      case "SELECT_CLINIC":
+      case "SELECT_CLINIC": {
 
         const clinicIndex = parseInt(text) - 1;
         const selectedClinic = session.data.clinics[clinicIndex];
@@ -88,7 +102,6 @@ async function handleSteps(session, text, userId, res) {
 
         session.data.clinicId = selectedClinic._id;
         session.data.clinicName = selectedClinic.name;
-        session.step = "SELECT_DOCTOR";
 
         const doctors = await Doctor.find({
           clinicId: selectedClinic._id,
@@ -102,6 +115,7 @@ async function handleSteps(session, text, userId, res) {
         }
 
         session.data.doctors = doctors;
+        session.step = "SELECT_DOCTOR";
 
         const doctorList = doctors
           .map((d, i) => `${i + 1}. Dr. ${d.name}`)
@@ -110,10 +124,10 @@ async function handleSteps(session, text, userId, res) {
         return res.json({
           reply: `Please choose a doctor:\n${doctorList}`,
         });
-
+      }
 
       /* ================= DOCTOR ================= */
-      case "SELECT_DOCTOR":
+      case "SELECT_DOCTOR": {
 
         const doctorIndex = parseInt(text) - 1;
         const selectedDoctor = session.data.doctors[doctorIndex];
@@ -129,36 +143,39 @@ async function handleSteps(session, text, userId, res) {
         return res.json({
           reply: "📅 Please provide preferred date (DD-MM-YYYY)",
         });
-
+      }
 
       /* ================= DATE ================= */
-     case "ASK_DATE":
+      case "ASK_DATE": {
 
-  const parts = text.split("-"); // DD-MM-YYYY
+        const parts = text.split("-");
 
-  if (parts.length !== 3) {
-    return res.json({
-      reply: "Invalid date format. Use DD-MM-YYYY",
-    });
-  }
+        if (parts.length !== 3) {
+          return res.json({
+            reply: "Invalid date format. Use DD-MM-YYYY",
+          });
+        }
 
-  const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`; 
-  // 🔥 convert to YYYY-MM-DD
+        const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        session.data.date = formattedDate;
 
-  session.data.date = formattedDate;
-  session.step = "ASK_TIME";
+        session.step = "ASK_TIME";
 
-  return res.json({
-    reply: "⏰ Please provide preferred time (Example: 10:30 AM)",
-  });
+        return res.json({
+          reply: "⏰ Please provide preferred time (Example: 10:30 AM)",
+        });
+      }
+
       /* ================= TIME ================= */
-      case "ASK_TIME":
-        session.data.timeSlot = text;
+      case "ASK_TIME": {
+
+        session.data.timeSlot = text.trim();
         session.step = "CONFIRM";
 
         return res.json({
           reply: `Please confirm:
 
+Patient: ${session.data.patientName}
 Clinic: ${session.data.clinicName}
 Doctor: Dr. ${session.data.doctorName}
 Date: ${session.data.date}
@@ -166,64 +183,49 @@ Time: ${session.data.timeSlot}
 
 Type YES to confirm or NO to cancel.`,
         });
-
+      }
 
       /* ================= CONFIRM ================= */
- case "CONFIRM":
+      case "CONFIRM": {
 
-  if (text.toLowerCase() === "yes") {
+        if (text.toLowerCase() !== "yes") {
+          reset(userId);
+          return res.json({ reply: "Booking cancelled." });
+        }
 
-    // 🔥 Find patient by phone
-    const Patient = require("../models/Patient");
+        const exists = await Appointment.findOne({
+          clinicId: session.data.clinicId,
+          doctorId: session.data.doctorId,
+          date: session.data.date,
+          timeSlot: session.data.timeSlot,
+          status: "booked",
+        });
 
-    const patient = await Patient.findOne({
-      phone: session.data.patientPhone,
-    });
+        if (exists) {
+          reset(userId);
+          return res.json({
+            reply: "❌ That time slot is already booked.",
+          });
+        }
 
-    if (!patient) {
-      reset(userId);
-      return res.json({
-        reply: "❌ No registered patient found with this phone number.",
-      });
-    }
+        await Appointment.create({
+          clinicId: session.data.clinicId,
+          doctorId: session.data.doctorId,
+          patientId: session.data.patientId,   // 🔥 now guaranteed
+          patientName: session.data.patientName,
+          patientPhone: session.data.patientPhone,
+          date: session.data.date,
+          timeSlot: session.data.timeSlot,
+          status: "booked",
+        });
 
-    // 🔥 Check slot availability
-    const exists = await Appointment.findOne({
-      clinicId: session.data.clinicId,
-      doctorId: session.data.doctorId,
-      date: session.data.date,
-      timeSlot: session.data.timeSlot,
-      status: "booked",
-    });
+        reset(userId);
 
-    if (exists) {
-      reset(userId);
-      return res.json({
-        reply: "❌ That time slot is already booked.",
-      });
-    }
+        return res.json({
+          reply: "🎉 Appointment booked successfully!",
+        });
+      }
 
-    // ✅ CREATE APPOINTMENT PROPERLY
-    await Appointment.create({
-      clinicId: session.data.clinicId,
-      doctorId: session.data.doctorId,
-      patientId: patient._id,     // 🔥 CRITICAL
-      patientName: patient.name,  // 🔥 real patient
-      patientPhone: patient.phone,
-      date: session.data.date,
-      timeSlot: session.data.timeSlot,
-      status: "booked",
-    });
-
-    reset(userId);
-
-    return res.json({
-      reply: "🎉 Appointment booked successfully!",
-    });
-  }
-
-  reset(userId);
-  return res.json({ reply: "Booking cancelled." });
       default:
         reset(userId);
         return res.json({ reply: "Restarting session." });

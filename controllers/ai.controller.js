@@ -132,15 +132,25 @@ async function handleSteps(session, text, userId, res) {
 
 
       /* ================= DATE ================= */
-      case "ASK_DATE":
-        session.data.date = text;
-        session.step = "ASK_TIME";
+     case "ASK_DATE":
 
-        return res.json({
-          reply: "⏰ Please provide preferred time (Example: 10:30 AM)",
-        });
+  const parts = text.split("-"); // DD-MM-YYYY
 
+  if (parts.length !== 3) {
+    return res.json({
+      reply: "Invalid date format. Use DD-MM-YYYY",
+    });
+  }
 
+  const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`; 
+  // 🔥 convert to YYYY-MM-DD
+
+  session.data.date = formattedDate;
+  session.step = "ASK_TIME";
+
+  return res.json({
+    reply: "⏰ Please provide preferred time (Example: 10:30 AM)",
+  });
       /* ================= TIME ================= */
       case "ASK_TIME":
         session.data.timeSlot = text;

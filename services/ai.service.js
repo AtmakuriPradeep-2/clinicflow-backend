@@ -4,16 +4,14 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-async function getAIReply(systemPrompt, userMessage) {
+exports.getAIReply = async (systemPrompt, message) => {
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
+      { role: "user", content: message },
     ],
   });
 
   return response.choices[0].message.content;
-}
-
-module.exports = { getAIReply };
+};

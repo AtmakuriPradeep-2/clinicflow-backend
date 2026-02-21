@@ -1,115 +1,77 @@
 const Appointment = require("../models/Appointment");
 const Doctor = require("../models/Doctor");
-const { detectIntent } = require("../services/intent.service");
-const { getAIReply } = require("../services/ai.service");
+const Clinic = require("../models/Clinic");
 
 const sessions = {};
 
 exports.aiReceptionist = async (req, res) => {
   try {
-    const { message, userId } = req.body;
-
-    if (!message || !userId) {
-      return res.json({ reply: "Invalid request." });
-    }
-
+    const { message, userId = "guest" } = req.body;
     const text = message.trim();
 
-    /* ===== CREATE SESSION IF NOT EXISTS ===== */
     if (!sessions[userId]) {
-      sessions[userId] = {
-        step: null,
-        data: {},
-      };
+      sessions[userId] = { step: null, data: {} };
     }
 
     const session = sessions[userId];
 
-    console.log("USER:", userId);
-    console.log("STEP:", session.step);
-    console.log("MESSAGE:", text);
-
-    /* ===== IF USER IS ALREADY IN FLOW ===== */
     if (session.step) {
       return handleSteps(session, text, userId, res);
     }
 
-    /* ===== INTENT DETECTION ===== */
-    const intent = detectIntent(text);
-
-    if (intent === "BOOK") {
-      session.step = "ASK_NAME";
-      return res.json({
-        reply: "Sure 😊 May I know the patient name?",
-      });
+    if (text.toLowerCase().includes("book")) {
+      session.step = "ASK_PHONE";
+      return res.json({ reply: "📞 Please provide your phone number." });
     }
 
-    if (intent === "CANCEL") {
-      session.step = "ASK_CANCEL_PHONE";
-      return res.json({
-        reply: "Please provide your phone number to cancel appointment.",
-      });
-    }
-
-    if (intent === "INFO") {
-      return res.json({
-        reply:
-          "🏥 Clinic timings are 9 AM to 8 PM, Monday to Saturday.",
-      });
-    }
-
-    /* ===== AI FALLBACK ===== */
-    const aiReply = await getAIReply(
-      "You are a professional clinic receptionist. Be polite and short.",
-      text
-    );
-
-    return res.json({ reply: aiReply });
+    return res.json({
+      reply:
+        "Hello 😊 I can help you with booking appointments. Type 'book appointment' to begin.",
+    });
 
   } catch (err) {
-    console.error("AI ERROR:", err);
-    return res.json({
-      reply: "Sorry 😅 Something went wrong. Please try again.",
+    console.error(err);
+    return res.status(500).json({
+      reply: "Server error occurred.",
     });
   }
 };
+
 async function handleSteps(session, text, userId, res) {
 
   switch (session.step) {
 
-    case "ASK_NAME":
-      session.data.patientName = text;
-      session.step = "ASK_PHONE";
-      return res.json({
-        reply: "Please provide phone number 📞",
-      });
-
+    /* ========= PHONE ========= */
     case "ASK_PHONE":
       session.data.patientPhone = text;
-      session.step = "ASK_DATE";
+      session.step = "SELECT_CLINIC";
+
+      const clinics = await Clinic.find();
+      session.data.clinics = clinics;
+
+      const clinicList = clinics
+        .map((c, i) => `${i + 1}. ${c.name}`)
+        .join("\n");
+
       return res.json({
-        reply: "Preferred date? (DD-MM-YYYY)",
+        reply: `Please choose a clinic:\n${clinicList}`,
       });
 
-    case "ASK_DATE":
-      session.data.date = text;
-      session.step = "ASK_TIME";
-      return res.json({
-        reply: "Preferred time? (Example: 10:30 AM)",
-      });
+    /* ========= CLINIC ========= */
+    case "SELECT_CLINIC":
+      const clinicIndex = parseInt(text) - 1;
+      const selectedClinic = session.data.clinics[clinicIndex];
 
-    case "ASK_TIME":
-      session.data.timeSlot = text;
-      session.step = "ASK_DOCTOR";
-
-      const doctors = await Doctor.find();
-
-      if (!doctors.length) {
-        reset(userId);
-        return res.json({
-          reply: "No doctors available currently.",
-        });
+      if (!selectedClinic) {
+        return res.json({ reply: "Invalid clinic selection." });
       }
+
+      session.data.clinicId = selectedClinic._id;
+      session.step = "SELECT_DOCTOR";
+
+      const doctors = await Doctor.find({
+        clinicId: selectedClinic._id,
+      });
 
       session.data.doctors = doctors;
 
@@ -121,49 +83,67 @@ async function handleSteps(session, text, userId, res) {
         reply: `Please choose a doctor:\n${doctorList}`,
       });
 
-    case "ASK_DOCTOR":
-      const index = parseInt(text) - 1;
-      const selectedDoctor = session.data.doctors[index];
+    /* ========= DOCTOR ========= */
+    case "SELECT_DOCTOR":
+      const doctorIndex = parseInt(text) - 1;
+      const selectedDoctor = session.data.doctors[doctorIndex];
 
       if (!selectedDoctor) {
-        return res.json({
-          reply: "Invalid selection. Please type a valid doctor number.",
-        });
+        return res.json({ reply: "Invalid doctor selection." });
       }
 
       session.data.doctorId = selectedDoctor._id;
       session.data.doctorName = selectedDoctor.name;
+
+      session.step = "ASK_DATE";
+      return res.json({
+        reply: "📅 Please provide preferred date (DD-MM-YYYY)",
+      });
+
+    /* ========= DATE ========= */
+    case "ASK_DATE":
+      session.data.date = text;
+      session.step = "ASK_TIME";
+      return res.json({
+        reply: "⏰ Please provide preferred time (Example: 10:30 AM)",
+      });
+
+    /* ========= TIME ========= */
+    case "ASK_TIME":
+      session.data.timeSlot = text;
       session.step = "CONFIRM";
 
       return res.json({
-        reply: `Please confirm:\n\nPatient: ${session.data.patientName}\nDate: ${session.data.date}\nTime: ${session.data.timeSlot}\nDoctor: Dr. ${selectedDoctor.name}\n\nType YES to confirm or NO to cancel.`,
+        reply: `Please confirm:\nClinic: ${session.data.clinicId}\nDoctor: Dr. ${session.data.doctorName}\nDate: ${session.data.date}\nTime: ${session.data.timeSlot}\n\nType YES to confirm.`,
       });
 
+    /* ========= CONFIRM ========= */
     case "CONFIRM":
-
       if (text.toLowerCase() === "yes") {
 
-        const existing = await Appointment.findOne({
+        const exists = await Appointment.findOne({
+          clinicId: session.data.clinicId,
           doctorId: session.data.doctorId,
           date: session.data.date,
           timeSlot: session.data.timeSlot,
           status: "booked",
         });
 
-        if (existing) {
+        if (exists) {
           reset(userId);
           return res.json({
-            reply: "❌ That time slot is already booked.",
+            reply: "❌ That slot is already booked.",
           });
         }
 
         await Appointment.create({
-          clinicId: process.env.DEFAULT_CLINIC_ID,
+          clinicId: session.data.clinicId,
           doctorId: session.data.doctorId,
-          patientName: session.data.patientName,
+          patientName: "AI Patient",
           patientPhone: session.data.patientPhone,
           date: session.data.date,
           timeSlot: session.data.timeSlot,
+          status: "booked",
         });
 
         reset(userId);
@@ -174,37 +154,14 @@ async function handleSteps(session, text, userId, res) {
       }
 
       reset(userId);
-      return res.json({
-        reply: "❌ Booking cancelled.",
-      });
-
-    case "ASK_CANCEL_PHONE":
-
-      const appt = await Appointment.findOne({
-        patientPhone: text,
-        status: "booked",
-      });
-
-      if (!appt) {
-        reset(userId);
-        return res.json({
-          reply: "No active appointment found.",
-        });
-      }
-
-      appt.status = "cancelled";
-      await appt.save();
-
-      reset(userId);
-
-      return res.json({
-        reply: "✅ Appointment cancelled successfully.",
-      });
+      return res.json({ reply: "Booking cancelled." });
 
     default:
       reset(userId);
-      return res.json({
-        reply: "Let's start again.",
-      });
+      return res.json({ reply: "Restarting session." });
   }
+}
+
+function reset(userId) {
+  sessions[userId] = { step: null, data: {} };
 }

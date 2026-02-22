@@ -24,10 +24,12 @@ exports.aiReceptionist = async (req, res) => {
 
     const session = sessions[userId];
 
+    // If already in flow
     if (session.step) {
       return await handleSteps(session, text, userId, res);
     }
 
+    // Start booking
     if (text.toLowerCase().includes("book")) {
       session.step = "ASK_PHONE";
       return res.json({
@@ -58,53 +60,59 @@ async function handleSteps(session, text, userId, res) {
       /* ================= PHONE ================= */
       case "ASK_PHONE": {
 
-  let cleanPhone = text.replace(/\D/g, "");
+        let cleanPhone = text.replace(/\D/g, "");
 
-  // If user entered 10 digits → convert to +91 format
-  if (cleanPhone.length === 10) {
-    cleanPhone = "+91" + cleanPhone;
-  }
+        if (cleanPhone.length === 10) {
+          cleanPhone = "+91" + cleanPhone;
+        }
 
-  // If entered 12 digits starting with 91
-  if (cleanPhone.length === 12 && cleanPhone.startsWith("91")) {
-    cleanPhone = "+" + cleanPhone;
-  }
+        if (cleanPhone.length === 12 && cleanPhone.startsWith("91")) {
+          cleanPhone = "+" + cleanPhone;
+        }
 
-  if (!cleanPhone.startsWith("+91") || cleanPhone.length !== 13) {
-    return res.json({
-      reply: "Invalid phone number. Please enter a valid Indian number.",
-    });
-  }
+        if (!cleanPhone.startsWith("+91") || cleanPhone.length !== 13) {
+          return res.json({
+            reply: "Invalid phone number. Please enter a valid Indian number.",
+          });
+        }
 
-  session.data.patientPhone = cleanPhone;
+        session.data.patientPhone = cleanPhone;
 
-  const patient = await Patient.findOne({
-    phone: cleanPhone,
-  });
+        const patient = await Patient.findOne({
+          phone: cleanPhone,
+        });
 
-  if (!patient) {
-    reset(userId);
-    return res.json({
-      reply: "❌ No registered patient found with this phone number.",
-    });
-  }
+        if (!patient) {
+          reset(userId);
+          return res.json({
+            reply: "❌ No registered patient found with this phone number.",
+          });
+        }
 
-  session.data.patientId = patient._id;
-  session.data.patientName = patient.name;
+        session.data.patientId = patient._id;
+        session.data.patientName = patient.name;
 
-  const clinics = await Clinic.find();
+        const clinics = await Clinic.find();
 
-  session.data.clinics = clinics;
-  session.step = "SELECT_CLINIC";
+        if (!clinics.length) {
+          reset(userId);
+          return res.json({
+            reply: "No clinics available currently.",
+          });
+        }
 
-  const clinicList = clinics
-    .map((c, i) => `${i + 1}. ${c.name}`)
-    .join("\n");
+        session.data.clinics = clinics;
+        session.step = "SELECT_CLINIC";
 
-  return res.json({
-    reply: `Please choose a clinic:\n${clinicList}`,
-  });
-}
+        const clinicList = clinics
+          .map((c, i) => `${i + 1}. ${c.name}`)
+          .join("\n");
+
+        return res.json({
+          reply: `Please choose a clinic:\n${clinicList}`,
+        });
+      }
+
       /* ================= CLINIC ================= */
       case "SELECT_CLINIC": {
 
@@ -207,25 +215,21 @@ Type YES to confirm or NO to cancel.`,
           return res.json({ reply: "Booking cancelled." });
         }
 
-        const exists = await Appointment.create({
-  clinicId: session.data.clinicId,
-  doctorId: session.data.doctorId,
-  patientId: session.data.patientId,
-  patientName: session.data.patientName,
-  patientPhone: session.data.patientPhone, // now +91 format
-  date: session.data.date,
-  timeSlot: session.data.timeSlot,
-  status: "booked",
-});
+        const existingAppointment = await Appointment.findOne({
+          clinicId: session.data.clinicId,
+          doctorId: session.data.doctorId,
+          date: session.data.date,
+          timeSlot: session.data.timeSlot,
+          status: "booked",
+        });
 
-        if (exists) {
+        if (existingAppointment) {
           reset(userId);
           return res.json({
             reply: "❌ That time slot is already booked.",
           });
         }
 
-        // ✅ Save with normalized phone
         await Appointment.create({
           clinicId: session.data.clinicId,
           doctorId: session.data.doctorId,

@@ -2,16 +2,18 @@ router.get("/appointments", authPatient, async (req, res) => {
   try {
     const { date } = req.query;
 
-    if (!req.user?.id || !req.user?.clinicId) {
+    console.log("Logged user:", req.user);
+    console.log("Query date:", date);
+
+    if (!req.user?.id) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
     const filter = {
       patientId: req.user.id,
-      clinicId: req.user.clinicId,  // 🔥 IMPORTANT
+      status: "booked", // 🔥 only active ones
     };
 
-    // Optional date filter
     if (date) {
       filter.date = date;
     }
@@ -20,6 +22,8 @@ router.get("/appointments", authPatient, async (req, res) => {
       .populate("doctorId", "name specialization")
       .populate("clinicId", "name")
       .sort({ date: 1, timeSlot: 1 });
+
+    console.log("Found appointments:", appointments.length);
 
     res.json(appointments);
 

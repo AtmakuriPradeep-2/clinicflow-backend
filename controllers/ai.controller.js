@@ -17,6 +17,7 @@ exports.aiReceptionist = async (req, res) => {
     }
 
     const text = message.trim();
+    const lowerText = text.toLowerCase();
 
     if (!sessions[userId]) {
       sessions[userId] = { step: null, data: {} };
@@ -24,13 +25,33 @@ exports.aiReceptionist = async (req, res) => {
 
     const session = sessions[userId];
 
-    // If already in flow
+    /* ===== GLOBAL INTERRUPT HANDLER ===== */
+    if (
+      lowerText === "hi" ||
+      lowerText === "hello" ||
+      lowerText === "start" ||
+      lowerText === "restart" ||
+      lowerText === "menu"
+    ) {
+      reset(userId);
+      return res.json({
+        reply:
+          "Hello 😊 I can help you book or cancel appointments. Type 'book appointment' to begin.",
+      });
+    }
+
+    if (lowerText === "cancel") {
+      reset(userId);
+      return res.json({ reply: "Session cancelled." });
+    }
+
+    /* ===== CONTINUE FLOW ===== */
     if (session.step) {
       return await handleSteps(session, text, userId, res);
     }
 
-    // Start booking
-    if (text.toLowerCase().includes("book")) {
+    /* ===== START BOOKING ===== */
+    if (lowerText.includes("book")) {
       session.step = "ASK_PHONE";
       return res.json({
         reply: "📞 Please provide your registered phone number.",
@@ -59,7 +80,6 @@ async function handleSteps(session, text, userId, res) {
 
       /* ================= PHONE ================= */
       case "ASK_PHONE": {
-
         let cleanPhone = text.replace(/\D/g, "");
 
         if (cleanPhone.length === 10) {
@@ -76,11 +96,7 @@ async function handleSteps(session, text, userId, res) {
           });
         }
 
-        session.data.patientPhone = cleanPhone;
-
-        const patient = await Patient.findOne({
-          phone: cleanPhone,
-        });
+        const patient = await Patient.findOne({ phone: cleanPhone });
 
         if (!patient) {
           reset(userId);
@@ -89,6 +105,7 @@ async function handleSteps(session, text, userId, res) {
           });
         }
 
+        session.data.patientPhone = cleanPhone;
         session.data.patientId = patient._id;
         session.data.patientName = patient.name;
 
@@ -115,7 +132,6 @@ async function handleSteps(session, text, userId, res) {
 
       /* ================= CLINIC ================= */
       case "SELECT_CLINIC": {
-
         const clinicIndex = parseInt(text) - 1;
         const selectedClinic = session.data.clinics[clinicIndex];
 
@@ -151,7 +167,6 @@ async function handleSteps(session, text, userId, res) {
 
       /* ================= DOCTOR ================= */
       case "SELECT_DOCTOR": {
-
         const doctorIndex = parseInt(text) - 1;
         const selectedDoctor = session.data.doctors[doctorIndex];
 
@@ -170,16 +185,17 @@ async function handleSteps(session, text, userId, res) {
 
       /* ================= DATE ================= */
       case "ASK_DATE": {
+        const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
 
-        const parts = text.split("-");
-
-        if (parts.length !== 3) {
+        if (!dateRegex.test(text)) {
           return res.json({
             reply: "Invalid date format. Use DD-MM-YYYY",
           });
         }
 
-        const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        const [day, month, year] = text.split("-");
+        const formattedDate = `${year}-${month}-${day}`;
+
         session.data.date = formattedDate;
         session.step = "ASK_TIME";
 
@@ -190,6 +206,11 @@ async function handleSteps(session, text, userId, res) {
 
       /* ================= TIME ================= */
       case "ASK_TIME": {
+        if (!text.trim()) {
+          return res.json({
+            reply: "Please provide a valid time (Example: 10:30 AM)",
+          });
+        }
 
         session.data.timeSlot = text.trim();
         session.step = "CONFIRM";
@@ -209,7 +230,6 @@ Type YES to confirm or NO to cancel.`,
 
       /* ================= CONFIRM ================= */
       case "CONFIRM": {
-
         if (text.toLowerCase() !== "yes") {
           reset(userId);
           return res.json({ reply: "Booking cancelled." });
@@ -250,7 +270,9 @@ Type YES to confirm or NO to cancel.`,
 
       default:
         reset(userId);
-        return res.json({ reply: "Restarting session." });
+        return res.json({
+          reply: "Session restarted. Type 'book appointment' to begin.",
+        });
     }
 
   } catch (error) {

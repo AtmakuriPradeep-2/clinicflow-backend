@@ -9,7 +9,7 @@ exports.aiReceptionist = async (req, res) => {
   try {
     const { message, userId = "guest" } = req.body;
 
-    if (!message?.trim()) {
+    if (!message || !message.trim()) {
       return res.json({ reply: "Please enter a valid message." });
     }
 
@@ -22,7 +22,7 @@ exports.aiReceptionist = async (req, res) => {
     const session = sessions[userId];
 
     if (session.step) {
-      return await handleSteps(session, text, userId, res, req);
+      return await handleSteps(session, text, userId, res);
     }
 
     if (text.toLowerCase().includes("book")) {
@@ -45,7 +45,7 @@ exports.aiReceptionist = async (req, res) => {
   }
 };
 
-async function handleSteps(session, text, userId, res, req) {
+async function handleSteps(session, text, userId, res) {
   try {
 
     switch (session.step) {
@@ -53,8 +53,10 @@ async function handleSteps(session, text, userId, res, req) {
       /* ================= PHONE ================= */
       case "ASK_PHONE": {
 
+        session.data.patientPhone = text.trim();
+
         const patient = await Patient.findOne({
-          patientPhone: text.trim(),
+          phone: session.data.patientPhone,
         });
 
         if (!patient) {
@@ -65,13 +67,15 @@ async function handleSteps(session, text, userId, res, req) {
         }
 
         session.data.patientId = patient._id;
-        session.data.patientName = patient.patientName;
-        session.data.patientPhone = patient.patientPhone;
+        session.data.patientName = patient.name;
 
         const clinics = await Clinic.find();
+
         if (!clinics.length) {
           reset(userId);
-          return res.json({ reply: "No clinics available." });
+          return res.json({
+            reply: "No clinics available currently.",
+          });
         }
 
         session.data.clinics = clinics;
@@ -89,8 +93,8 @@ async function handleSteps(session, text, userId, res, req) {
       /* ================= CLINIC ================= */
       case "SELECT_CLINIC": {
 
-        const selectedClinic =
-          session.data.clinics[parseInt(text) - 1];
+        const clinicIndex = parseInt(text) - 1;
+        const selectedClinic = session.data.clinics[clinicIndex];
 
         if (!selectedClinic) {
           return res.json({ reply: "Invalid clinic selection." });
@@ -125,8 +129,8 @@ async function handleSteps(session, text, userId, res, req) {
       /* ================= DOCTOR ================= */
       case "SELECT_DOCTOR": {
 
-        const selectedDoctor =
-          session.data.doctors[parseInt(text) - 1];
+        const doctorIndex = parseInt(text) - 1;
+        const selectedDoctor = session.data.doctors[doctorIndex];
 
         if (!selectedDoctor) {
           return res.json({ reply: "Invalid doctor selection." });
@@ -145,9 +149,10 @@ async function handleSteps(session, text, userId, res, req) {
       case "ASK_DATE": {
 
         const parts = text.split("-");
+
         if (parts.length !== 3) {
           return res.json({
-            reply: "Invalid format. Use DD-MM-YYYY",
+            reply: "Invalid date format. Use DD-MM-YYYY",
           });
         }
 
@@ -203,26 +208,16 @@ Type YES to confirm or NO to cancel.`,
           });
         }
 
-        const newAppointment = await Appointment.create({
+        await Appointment.create({
           clinicId: session.data.clinicId,
           doctorId: session.data.doctorId,
-          patientId: session.data.patientId,
+          patientId: session.data.patientId,   // 🔥 now guaranteed
           patientName: session.data.patientName,
           patientPhone: session.data.patientPhone,
           date: session.data.date,
           timeSlot: session.data.timeSlot,
           status: "booked",
         });
-
-        /* 🔥 REAL-TIME EMIT */
-        const io = req.app.get("io");
-        io.to(session.data.patientId.toString()).emit(
-          "appointment:update",
-          {
-            doctor: session.data.doctorName,
-            status: "booked",
-          }
-        );
 
         reset(userId);
 
@@ -233,7 +228,7 @@ Type YES to confirm or NO to cancel.`,
 
       default:
         reset(userId);
-        return res.json({ reply: "Session restarted." });
+        return res.json({ reply: "Restarting session." });
     }
 
   } catch (error) {

@@ -5,6 +5,9 @@ const Patient = require("../models/Patient");
 
 const sessions = {};
 
+/* =========================================
+   MAIN AI RECEPTIONIST CONTROLLER
+========================================= */
 exports.aiReceptionist = async (req, res) => {
   try {
     const { message, userId = "guest" } = req.body;
@@ -45,19 +48,32 @@ exports.aiReceptionist = async (req, res) => {
   }
 };
 
+/* =========================================
+   HANDLE BOOKING FLOW
+========================================= */
 async function handleSteps(session, text, userId, res) {
   try {
-
     switch (session.step) {
 
       /* ================= PHONE ================= */
       case "ASK_PHONE": {
 
-        session.data.patientPhone = text.trim();
+        // 🔥 Normalize phone (CRITICAL FIX)
+        let cleanPhone = text.replace(/\D/g, "");
 
-        const patient = await Patient.findOne({
-          phone: session.data.patientPhone,
-        });
+        if (cleanPhone.length === 12 && cleanPhone.startsWith("91")) {
+          cleanPhone = cleanPhone.slice(2);
+        }
+
+        if (cleanPhone.length !== 10) {
+          return res.json({
+            reply: "Invalid phone number. Please enter a valid 10-digit number.",
+          });
+        }
+
+        session.data.patientPhone = cleanPhone;
+
+        const patient = await Patient.findOne({ phone: cleanPhone });
 
         if (!patient) {
           reset(userId);
@@ -158,7 +174,6 @@ async function handleSteps(session, text, userId, res) {
 
         const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
         session.data.date = formattedDate;
-
         session.step = "ASK_TIME";
 
         return res.json({
@@ -208,10 +223,11 @@ Type YES to confirm or NO to cancel.`,
           });
         }
 
+        // ✅ Save with normalized phone
         await Appointment.create({
           clinicId: session.data.clinicId,
           doctorId: session.data.doctorId,
-          patientId: session.data.patientId,   // 🔥 now guaranteed
+          patientId: session.data.patientId,
           patientName: session.data.patientName,
           patientPhone: session.data.patientPhone,
           date: session.data.date,
@@ -240,6 +256,9 @@ Type YES to confirm or NO to cancel.`,
   }
 }
 
+/* =========================================
+   RESET SESSION
+========================================= */
 function reset(userId) {
   sessions[userId] = { step: null, data: {} };
 }

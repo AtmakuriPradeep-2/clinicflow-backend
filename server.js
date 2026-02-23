@@ -21,6 +21,7 @@ const patientAppointmentRoutes = require("./routes/patientAppointmentRoutes");
 const patientBookingRoutes = require("./routes/patientBookingRoutes");
 const patientDoctorsRoutes = require("./routes/patientDoctorsRoutes");
 const clinicRoutes = require("./routes/clinicRoutes");
+const voiceRoutes = require("./routes/voiceRoutes");
 
 
 /* 🔥 AI ROUTE (NEW – SAFE ADDITION) */
@@ -61,6 +62,7 @@ app.use("/api/patient", patientAppointmentRoutes);
 app.use("/api/patient", patientBookingRoutes);
 app.use("/api/patient", patientDoctorsRoutes);
 app.use("/api/clinic", clinicRoutes);
+app.use("/api/voice", voiceRoutes);
 
 /* 🔥 AI ROUTE MOUNT (NEW – SAFE ADDITION) */
 app.use("/api/ai", aiRoutes);

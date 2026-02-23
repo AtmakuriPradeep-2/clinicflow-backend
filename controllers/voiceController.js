@@ -48,12 +48,12 @@ exports.processVoice = async (req, res) => {
     reply
   );
 
-  response.gather({
-    input: "speech",
-    action: "/api/voice/process",
-    method: "POST",
-    speechTimeout: "auto",
-  });
+ response.gather({
+  input: "speech",
+  action: "https://clinicflow-backend-v3e3.onrender.com/api/voice/process",
+  method: "POST",
+  speechTimeout: "auto",
+});
 
   res.type("text/xml");
   res.send(response.toString());
